@@ -8,3 +8,16 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+
+  # Second service: Jackett (torrent indexer proxy). The backend talks
+  # to this service's public URL, so no PC needs to stay on.
+  - type: web
+    name: streamhub-jackett
+    env: docker
+    dockerfilePath: ./jackett/Dockerfile
+    plan: free
+    envVars:
+      - key: TZ
+        value: Asia/Calcutta
+      - key: AUTO_UPDATE
+        value: "true"

@@ -30,6 +30,17 @@ from seedr import Seedr
 
 app = Flask(__name__)
 
+# Stremio Web runs in a browser, so its manifest/stream/catalog fetches
+# are subject to CORS - a plain browser visit is not. Without these
+# headers Stremio Web reports "failed to fetch manifest" even though
+# the same URL loads fine when opened directly.
+@app.after_request
+def add_cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
 ADDON_ID = "com.hari.streamhub"
 ADDON_NAME = "StreamHub"
 ADDON_VERSION = "1.0.0"
@@ -129,8 +140,6 @@ def build_manifest():
         "name": ADDON_NAME,
         "description": "Fast streaming addon - torrent results via your Jackett, "
                        "downloads via your Seedr.cc account.",
-        "logo": "https://example.com/logo.png",
-        "background": "https://example.com/background.png",
         "types": ["movie", "series"],
         "resources": [
             {"name": "stream", "types": ["movie", "series"],
@@ -250,6 +259,15 @@ def configure():
     this server, and is stored only inside your Stremio install link.
     Use this addon for your own account only.</small></p>
     """
+
+
+@app.route("/<config>/catalog/<media_type>/<catalog_id>.json")
+@app.route("/<config>/catalog/<media_type>/<catalog_id>/<extra>.json")
+def catalog(config, media_type, catalog_id, extra=None):
+    """The manifest declares a Trending catalog; there is no catalog
+    data behind it, so return an empty list instead of a 404 (a 404
+    here breaks the addon view in some Stremio clients)."""
+    return jsonify({"metas": []})
 
 
 @app.route("/<config>/stream/<media_type>/<media_id>.json")

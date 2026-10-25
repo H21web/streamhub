@@ -44,6 +44,35 @@ Seedr -> your device (video, direct — no bytes through this server)
 - `jackett.py` — Jackett Torznab search client
 - `requirements.txt`, `render.yaml` — deploy files
 
+## Jackett on Render (second service, no PC needed)
+
+`render.yaml` deploys two services from this repo:
+
+1. **streamhub** — the Stremio addon backend (Python).
+2. **streamhub-jackett** — Jackett (Docker), the torrent search proxy.
+
+After both are live:
+
+1. Open the Jackett service URL (`https://streamhub-jackett.onrender.com`)
+   — first open takes ~30–60 s because free services sleep when idle.
+2. **Add indexers** (1337x, Pirate Bay, etc. — whichever work for you).
+3. **Set an admin password** in Jackett (bottom of the settings page) so
+   strangers can't open your Jackett dashboard. The Torznab API key
+   still works for the backend.
+4. Copy the **API key** (top-right of the Jackett dashboard).
+5. Open the StreamHub `/configure` page and set:
+   - **Jackett URL:** `https://streamhub-jackett.onrender.com`
+   - **Jackett API key:** the key from step 4.
+
+Caveats:
+
+- Free Render services **sleep after ~15 min idle** — the first search
+  after a sleep wakes both services and takes ~30–60 s.
+- Free Render has **no persistent disk**: if the Jackett service is
+  redeployed or restarted, its config (indexers, API key) can reset and
+  you will need to re-add indexers and paste the new API key into
+  `/configure`. The backend's own files are unaffected.
+
 ## Auto-cleanup (space management)
 
 When you click a new movie, the backend checks Seedr space first:
