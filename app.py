@@ -133,7 +133,11 @@ def decode_config(s):
         return {}
 
 
-def build_manifest():
+def build_manifest(configured=False):
+    # The plain manifest needs configuration, but a manifest fetched
+    # through an already-configured URL must NOT say so - otherwise
+    # Stremio sends the user back to configure again, forever:
+    # configure -> install link -> configure -> install link...
     return {
         "id": ADDON_ID,
         "version": ADDON_VERSION,
@@ -153,7 +157,8 @@ def build_manifest():
             {"type": "series", "id": "streamhub-trending",
              "name": "StreamHub Trending"},
         ],
-        "behaviorHints": {"configurable": True, "configurationRequired": True},
+        "behaviorHints": {"configurable": True,
+                          "configurationRequired": not configured},
         "config": [
             {"key": "jackettUrl", "type": "text", "required": True,
              "title": "Jackett URL (e.g. http://your-jackett:9117)"},
@@ -208,7 +213,7 @@ def manifest_plain():
 
 @app.route("/<config>/manifest.json")
 def manifest_cfg(config):
-    return jsonify(build_manifest())
+    return jsonify(build_manifest(configured=True))
 
 
 @app.route("/configure", methods=["GET", "POST"])
