@@ -291,6 +291,51 @@ def catalog(config, media_type, catalog_id, extra=None):
     return jsonify({"metas": []})
 
 
+@app.route("/<config>/debug/<media_type>/<media_id>.json")
+def debug(config, media_type, media_id):
+    """Diagnostic only - no downloads are started. Shows where the
+    stream chain breaks: Cinemeta title, Jackett raw results, what the
+    quality/CAM filter drops, and whether Seedr auth works. Open it in
+    a browser by taking a manifest URL and replacing 'manifest.json'
+    with 'debug/<type>/<id>.json'. No keys or passwords are returned."""
+    cfg = decode_config(config)
+    title, year, season, episode = cinemeta_title(media_type, media_id)
+    if media_type == "series" and season is not None:
+        query = f"{title} S{season:02d}E{episode:02d}" if title else None
+    else:
+        query = f"{title} {year}" if title else None
+    raw = jackett.search(cfg.get("jackettUrl", ""),
+                         cfg.get("jackettApiKey", ""), query or "",
+                         media_type) if query else []
+    qualities = set(q.lower() for q in cfg.get("qualityFilter", [])) or None
+    rows, kept = [], 0
+    for r in raw[:10]:
+        q, src = jackett.parse_quality(r["title"])
+        reason = None
+        if qualities and q not in qualities:
+            reason = f"quality {q} not in filter"
+        elif cfg.get("excludeCam") and src.upper() in ("CAM", "HDCAM"):
+            reason = "CAM excluded"
+        else:
+            kept += 1
+        rows.append({"title": r["title"][:120], "quality": q,
+                     "source": src, "seeders": r["seeders"],
+                     "size": r["size"], "kept": reason is None,
+                     "drop_reason": reason})
+    try:
+        seedr = Seedr(cfg.get("seedrEmail", ""), cfg.get("seedrPassword", ""))
+        used, total = seedr.user_space()
+        seedr_status = "ok" if total else "ok (total unknown)"
+    except Exception:
+        seedr_status = "error (auth or network)"
+    return jsonify({"cinemeta_title": title, "year": year,
+                    "jackett_query": query,
+                    "jackett_raw_count": len(raw),
+                    "filtered_kept_count": kept,
+                    "results_sample": rows,
+                    "seedr": seedr_status})
+
+
 @app.route("/<config>/stream/<media_type>/<media_id>.json")
 def stream(config, media_type, media_id):
     cfg = decode_config(config)
@@ -310,7 +355,9 @@ def stream(config, media_type, media_id):
     filtered = []
     for r in results:
         q, src = jackett.parse_quality(r["title"])
-        if qualities and q not in qualities:
+        # 'unknown' quality still plays - dropping it emptied the list
+        # whenever indexers did not put a resolution tag in the title.
+        if qualities and q not in qualities and q != "unknown":
             continue
         if cfg.get("excludeCam") and src.upper() in ("CAM", "HDCAM"):
             continue

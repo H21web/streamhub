@@ -163,13 +163,24 @@ class Seedr:
         """Add a magnet to Seedr and wait (bounded) for the file.
 
         Returns (file_id, file_name) once downloadable, else None.
-        Already-downloaded torrents resolve instantly on repeat calls.
+
+        First checks the existing library: a torrent added by an
+        earlier attempt is usually already downloaded, and the old
+        code only looked for *new* folders, so a repeat request for
+        the same movie could never resolve - it returned empty
+        forever even though the file was sitting in Seedr.
         """
         try:
             root = self.list_folder()
             before = {f.get("id") for f in root.get("folders", []) or []}
         except Exception:
             return None
+        # Already in the library? Return its video file at once.
+        existing = self.find_folder(torrent_name, set())
+        if existing:
+            best = self.largest_video_file(existing)
+            if best:
+                return best[0], best[2]
         transfer_id = self.add_magnet(magnet)
         if transfer_id is None:
             return None

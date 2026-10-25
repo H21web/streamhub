@@ -27,7 +27,7 @@ def _attr(item, name):
     return None
 
 
-def search(jackett_url, api_key, query, media_type, timeout=15):
+def search(jackett_url, api_key, query, media_type, timeout=30):
     """Returns list of dicts: title, magnet, size, seeders."""
     base = jackett_url.rstrip("/")
     params = {
@@ -79,10 +79,15 @@ def search(jackett_url, api_key, query, media_type, timeout=15):
 
 
 def parse_quality(title):
-    """(quality, source) e.g. ('1080p', 'BluRay')."""
+    """(quality, source) e.g. ('1080p', 'BluRay'). 2160p and 4K are
+    normalised to '4k' so they match the config's quality filter,
+    which offers '4k' (previously 2160p titles were silently dropped
+    by the filter even when the user selected 4K)."""
     t = title or ""
-    m = re.search(r"(2160p|1080p|720p|480p|360p)", t, re.I)
+    m = re.search(r"(2160p|4k|1080p|720p|480p|360p)", t, re.I)
     quality = m.group(1).lower() if m else "unknown"
+    if quality == "2160p":
+        quality = "4k"
     for src in ("BluRay", "WEB-DL", "WEBRip", "HDRip", "HDCAM", "CAM"):
         if re.search(src, t, re.I):
             return quality, src
