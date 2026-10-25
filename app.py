@@ -212,7 +212,12 @@ def manifest_cfg(config):
 
 
 @app.route("/configure", methods=["GET", "POST"])
-def configure():
+@app.route("/<config>/configure", methods=["GET", "POST"])
+def configure(config=None):
+    import html as _html
+    # Pre-fill from the installed config, so fixing one field (e.g. the
+    # Jackett URL) does not wipe the rest - notably the Seedr password.
+    defaults = decode_config(config) if config else {}
     if request.method == "POST":
         cfg = {
             "jackettUrl": request.form.get("jackettUrl", "").strip(),
@@ -233,25 +238,28 @@ def configure():
                 f"(Addons &gt; Add addon):</p><p><code>{install_url}</code></p>"
                 f"<p><a href='stremio://{request.host}/{encoded}/manifest.json'>"
                 f"Open in Stremio</a></p>")
-    return """
+    q = defaults.get("qualityFilter") or ["4k", "1080p", "720p"]
+    def chk(v):
+        return "checked" if v in q else ""
+    return f"""
     <h2>StreamHub - Configure</h2>
     <form method="post">
-      Jackett URL: <input name="jackettUrl" size="50" required><br><br>
-      Jackett API key: <input name="jackettApiKey" size="50" required><br><br>
-      Seedr email: <input name="seedrEmail" size="40" required><br><br>
-      Seedr password: <input type="password" name="seedrPassword" size="40" required><br><br>
-      Max results per quality: <input name="maxResultsPerQuality" value="5" size="5"><br><br>
+      Jackett URL: <input name="jackettUrl" size="50" required value="{_html.escape(defaults.get('jackettUrl', ''), quote=True)}"><br><br>
+      Jackett API key: <input name="jackettApiKey" size="50" required value="{_html.escape(defaults.get('jackettApiKey', ''), quote=True)}"><br><br>
+      Seedr email: <input name="seedrEmail" size="40" required value="{_html.escape(defaults.get('seedrEmail', ''), quote=True)}"><br><br>
+      Seedr password: <input type="password" name="seedrPassword" size="40" required value="{_html.escape(defaults.get('seedrPassword', ''), quote=True)}"><br><br>
+      Max results per quality: <input name="maxResultsPerQuality" value="{defaults.get('maxResultsPerQuality', 5)}" size="5"><br><br>
       Qualities:
-        <label><input type="checkbox" name="qualityFilter" value="4k" checked> 4K</label>
-        <label><input type="checkbox" name="qualityFilter" value="1080p" checked> 1080p</label>
-        <label><input type="checkbox" name="qualityFilter" value="720p" checked> 720p</label>
-        <label><input type="checkbox" name="qualityFilter" value="480p"> 480p</label><br><br>
-      <label><input type="checkbox" name="excludeCam" checked> Exclude CAM / screener</label><br><br>
+        <label><input type="checkbox" name="qualityFilter" value="4k" {chk('4k')}> 4K</label>
+        <label><input type="checkbox" name="qualityFilter" value="1080p" {chk('1080p')}> 1080p</label>
+        <label><input type="checkbox" name="qualityFilter" value="720p" {chk('720p')}> 720p</label>
+        <label><input type="checkbox" name="qualityFilter" value="480p" {chk('480p')}> 480p</label><br><br>
+      <label><input type="checkbox" name="excludeCam" {'checked' if defaults.get('excludeCam', True) else ''}> Exclude CAM / screener</label><br><br>
       Sort by:
         <select name="sortBy">
-          <option value="quality">Quality</option>
-          <option value="seeders">Seeders</option>
-          <option value="size">Size</option>
+          <option value="quality" {'selected' if defaults.get('sortBy', 'quality') == 'quality' else ''}>Quality</option>
+          <option value="seeders" {'selected' if defaults.get('sortBy') == 'seeders' else ''}>Seeders</option>
+          <option value="size" {'selected' if defaults.get('sortBy') == 'size' else ''}>Size</option>
         </select><br><br>
       <button type="submit">Generate install link</button>
     </form>
@@ -259,6 +267,14 @@ def configure():
     this server, and is stored only inside your Stremio install link.
     Use this addon for your own account only.</small></p>
     """
+
+
+@app.route("/<config>/manifest.json/configure")
+def configure_manifest_alias(config):
+    """Some Stremio clients append /configure to the full manifest URL
+    instead of replacing manifest.json with it - send them to the real
+    configure page for this config."""
+    return redirect(f"/{config}/configure", code=302)
 
 
 @app.route("/<config>/catalog/<media_type>/<catalog_id>.json")
