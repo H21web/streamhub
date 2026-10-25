@@ -11,7 +11,9 @@ Torznab search:
 Categories: 2000 = movies, 5000 = TV.
 """
 
+import hashlib
 import re
+from urllib.parse import quote
 import requests
 import xml.etree.ElementTree as ET
 
@@ -25,6 +27,79 @@ def _attr(item, name):
         if a.get("name") == name:
             return a.get("value")
     return None
+
+
+def _bdecode(data, i=0):
+    """Minimal bencode decoder returning (value, next_index).
+    Dict keys are bytes; the 'info' dict's raw span is what matters
+    for the infohash, so dict parsing keeps start/end offsets."""
+    if data[i:i+1] == b"i":
+        j = data.index(b"e", i)
+        return int(data[i+1:j]), j + 1
+    if data[i:i+1] == b"l":
+        out, i = [], i + 1
+        while data[i:i+1] != b"e":
+            v, i = _bdecode(data, i)
+            out.append(v)
+        return out, i + 1
+    if data[i:i+1] == b"d":
+        out, spans, i = {}, {}, i + 1
+        while data[i:i+1] != b"e":
+            k, i = _bdecode(data, i)
+            start = i
+            v, i = _bdecode(data, i)
+            out[k] = v
+            spans[k] = (start, i)
+        out[b"__spans__"] = spans
+        return out, i + 1
+    j = data.index(b":", i)
+    n = int(data[i:j])
+    return data[j+1:j+1+n], j + 1 + n
+
+
+def torrent_to_magnet(data, title=""):
+    """Convert .torrent bytes to a magnet link via the infohash
+    (SHA-1 of the raw bencoded 'info' dict). Returns None if the
+    file is not a valid torrent. Trackers from announce/announce-list
+    are kept so Seedr can find peers."""
+    try:
+        top, _ = _bdecode(data)
+        spans = top.get(b"__spans__", {})
+        start, end = spans[b"info"]
+        infohash = hashlib.sha1(data[start:end]).hexdigest()
+        trackers = []
+        if isinstance(top.get(b"announce"), bytes):
+            trackers.append(top[b"announce"].decode("utf-8", "ignore"))
+        al = top.get(b"announce-list")
+        if isinstance(al, list):
+            for tier in al:
+                if isinstance(tier, list):
+                    for t in tier:
+                        if isinstance(t, bytes):
+                            trackers.append(t.decode("utf-8", "ignore"))
+        mag = f"magnet:?xt=urn:btih:{infohash}"
+        if title:
+            mag += f"&dn={quote(title)}"
+        for t in dict.fromkeys(trackers):
+            if t:
+                mag += f"&tr={quote(t, safe='')}"
+        return mag
+    except Exception:
+        return None
+
+
+def _magnet_from_link(link, title):
+    """Fetch a .torrent file link and convert it to a magnet.
+    Returns None on any failure - the caller then skips the item."""
+    try:
+        r = requests.get(link, timeout=10,
+                         headers={"User-Agent": "StreamHub"})
+        r.raise_for_status()
+        if len(r.content) > 2 * 1024 * 1024:
+            return None
+        return torrent_to_magnet(r.content, title)
+    except Exception:
+        return None
 
 
 def search(jackett_url, api_key, query, media_type, timeout=30):
@@ -58,6 +133,10 @@ def search(jackett_url, api_key, query, media_type, timeout=30):
         if not magnet.startswith("magnet:"):
             # Torznab 'magneturl' attr holds the magnet when link is a file
             magnet = _attr(item, "magneturl") or ""
+        if not magnet.startswith("magnet:"):
+            # Some indexers only give a .torrent file link - convert it
+            # to a magnet via its infohash instead of dropping the item.
+            magnet = _magnet_from_link(link, title) or ""
         if not magnet.startswith("magnet:"):
             continue
         try:

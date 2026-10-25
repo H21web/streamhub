@@ -312,7 +312,7 @@ def debug(config, media_type, media_id):
     for r in raw[:10]:
         q, src = jackett.parse_quality(r["title"])
         reason = None
-        if qualities and q not in qualities:
+        if qualities and q not in qualities and q != "unknown":
             reason = f"quality {q} not in filter"
         elif cfg.get("excludeCam") and src.upper() in ("CAM", "HDCAM"):
             reason = "CAM excluded"
@@ -325,15 +325,18 @@ def debug(config, media_type, media_id):
     try:
         seedr = Seedr(cfg.get("seedrEmail", ""), cfg.get("seedrPassword", ""))
         used, total = seedr.user_space()
-        seedr_status = "ok" if total else "ok (total unknown)"
+        seedr_status = ("ok" if total else "ok (total unknown)")
+        seedr_used = used
     except Exception:
         seedr_status = "error (auth or network)"
+        seedr_used = None
     return jsonify({"cinemeta_title": title, "year": year,
                     "jackett_query": query,
                     "jackett_raw_count": len(raw),
                     "filtered_kept_count": kept,
                     "results_sample": rows,
-                    "seedr": seedr_status})
+                    "seedr": seedr_status,
+                    "seedr_used_bytes": seedr_used})
 
 
 @app.route("/<config>/stream/<media_type>/<media_id>.json")
@@ -402,10 +405,12 @@ def stream(config, media_type, media_id):
                 # backend-added files first (user's other files untouched).
                 ensure_space(seedr, r["size"], exclude_btih=btih)
                 remaining = budget_end - time.time()
-                if remaining < 4:
+                if remaining < 3:
                     break
+                # Cap each torrent's wait: one slow download must not
+                # eat the whole budget before other torrents are tried.
                 resolved = seedr.resolve(r["magnet"], r["title"],
-                                         deadline_seconds=remaining)
+                                         deadline_seconds=min(remaining, 8))
                 if not resolved:
                     continue
                 file_id, fname = resolved
